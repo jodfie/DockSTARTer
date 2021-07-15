@@ -1,17 +1,17 @@
 services:
-  prometheus:
-    container_name: prometheus
+  adminer:
+    container_name: adminer
     environment:
-      - PGID=${PGID}
-      - PUID=${PUID}
+      - ADMINER_DESIGN=${ADMINER_DESIGN}
+      - ADMINER_PLUGINS=${ADMINER_PLUGINS}
       - TZ=${TZ}
     logging:
       driver: json-file
       options:
         max-file: ${DOCKERLOGGING_MAXFILE}
         max-size: ${DOCKERLOGGING_MAXSIZE}
-    restart: ${PROMETHEUS_RESTART}
+    restart: ${ADMINER_RESTART}
     volumes:
       - /etc/localtime:/etc/localtime:ro
-      - ${DOCKERCONFDIR}/prometheus:/config
+      - ${DOCKERCONFDIR}/adminer:/sessions
       - ${DOCKERSTORAGEDIR}:/storage

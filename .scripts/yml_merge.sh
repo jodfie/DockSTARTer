@@ -5,16 +5,11 @@ IFS=$'\n\t'
 yml_merge() {
     run_script 'env_update'
     run_script 'appvars_create_all'
-    info "Merging docker-compose.yml file."
-    local RUNFILE
-    RUNFILE=$(mktemp) || fatal "Failed to create temporary yml merge script.\nFailing command: ${F[C]}mktemp"
-    echo "#!/usr/bin/env bash" > "${RUNFILE}"
-    {
-        echo "export YQ_OPTIONS=\"${YQ_OPTIONS:-} -v ${SCRIPTPATH}:${SCRIPTPATH}\""
-        echo "yq -y -s 'reduce .[] as \$item ({}; . * \$item) | del(.version)' "\\
-        echo "\"${SCRIPTPATH}/compose/.reqs/r1.yml\" \\"
-        echo "\"${SCRIPTPATH}/compose/.reqs/r2.yml\" \\"
-    } >> "${RUNFILE}"
+    info "Compiling arguments to merge docker-compose.yml file."
+    local YML_ARGS
+    YML_ARGS="${YML_ARGS:-} -y -s 'reduce .[] as \$item ({}; . * \$item) | del(.version)'"
+    YML_ARGS="${YML_ARGS:-} \"${SCRIPTPATH}/compose/.reqs/r1.yml\""
+    YML_ARGS="${YML_ARGS:-} \"${SCRIPTPATH}/compose/.reqs/r2.yml\""
     info "Required files included."
     notice "Adding compose configurations for enabled apps. Please be patient, this can take a while."
     while IFS= read -r line; do
@@ -33,28 +28,28 @@ yml_merge() {
                     error "${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.${ARCH}.yml does not exist."
                     continue
                 fi
-                echo "\"${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.${ARCH}.yml\" \\" >> "${RUNFILE}"
+                YML_ARGS="${YML_ARGS:-} \"${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.${ARCH}.yml\""
                 local APPNETMODE
                 APPNETMODE=$(run_script 'env_get' "${APPNAME}_NETWORK_MODE")
                 if [[ -z ${APPNETMODE} ]] || [[ ${APPNETMODE} == "bridge" ]]; then
                     if [[ -f ${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.hostname.yml ]]; then
-                        echo "\"${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.hostname.yml\" \\" >> "${RUNFILE}"
+                        YML_ARGS="${YML_ARGS:-} \"${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.hostname.yml\""
                     else
                         info "${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.hostname.yml does not exist."
                     fi
                     if [[ -f ${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.ports.yml ]]; then
-                        echo "\"${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.ports.yml\" \\" >> "${RUNFILE}"
+                        YML_ARGS="${YML_ARGS:-} \"${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.ports.yml\""
                     else
                         info "${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.ports.yml does not exist."
                     fi
                 elif [[ -n ${APPNETMODE} ]]; then
                     if [[ -f ${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.netmode.yml ]]; then
-                        echo "\"${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.netmode.yml\" \\" >> "${RUNFILE}"
+                        YML_ARGS="${YML_ARGS:-} \"${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.netmode.yml\""
                     else
                         info "${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.netmode.yml does not exist."
                     fi
                 fi
-                echo "\"${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.yml\" \\" >> "${RUNFILE}"
+                YML_ARGS="${YML_ARGS:-} \"${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.yml\""
                 info "All configurations for ${APPNAME} are included."
             else
                 warn "${SCRIPTPATH}/compose/.apps/${FILENAME}/${FILENAME}.yml does not exist."
@@ -63,21 +58,19 @@ yml_merge() {
             error "${SCRIPTPATH}/compose/.apps/${FILENAME}/ does not exist."
         fi
     done < <(grep '_ENABLED=true$' < "${SCRIPTPATH}/compose/.env")
-    echo "> \"${SCRIPTPATH}/compose/docker-compose.yml\"" >> "${RUNFILE}"
-    run_script 'install_yq'
-    info "Running compiled script to merge docker-compose.yml file."
-    bash "${RUNFILE}" > /dev/null 2>&1 || fatal "Failed to run yml merge script.\nFailing command: ${F[C]}bash \"${RUNFILE}\""
-    rm -f "${RUNFILE}" || warn "Failed to remove temporary yml merge script."
+    YML_ARGS="${YML_ARGS:-} > \"${SCRIPTPATH}/compose/docker-compose.yml\""
+    info "Running compiled arguments to merge docker-compose.yml file."
+    export YQ_OPTIONS="${YQ_OPTIONS:-} -v ${SCRIPTPATH}:${SCRIPTPATH}"
+    run_script 'run_yq' "${YML_ARGS}"
     info "Merging docker-compose.yml complete."
 }
 
 test_yml_merge() {
-    run_script 'update_system'
     run_script 'appvars_create' WATCHTOWER
     cat "${SCRIPTPATH}/compose/.env"
     run_script 'yml_merge'
     cd "${SCRIPTPATH}/compose/" || fatal "Failed to change directory.\nFailing command: ${F[C]}cd \"${SCRIPTPATH}/compose/\""
-    docker-compose config || fatal "Failed to validate ${SCRIPTPATH}/compose/docker-compose.yml file.\nFailing command: ${F[C]}docker-compose config"
+    run_script 'run_compose' "config"
     cd "${SCRIPTPATH}" || fatal "Failed to change directory.\nFailing command: ${F[C]}cd \"${SCRIPTPATH}\""
     run_script 'appvars_purge' WATCHTOWER
 }
